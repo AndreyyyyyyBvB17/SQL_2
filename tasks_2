@@ -1,0 +1,253 @@
+SELECT COUNT(id)
+FROM stackoverflow.posts
+WHERE post_type_id = 1 AND (score > 300 OR favorites_count >= 100);
+
+-------------
+
+WITH m as
+(SELECT COUNT(post_type_id) as i,
+CAST(DATE_TRUNC('day', creation_date) as date)
+FROM stackoverflow.posts
+WHERE post_type_id = 1 AND CAST(DATE_TRUNC('day', creation_date) as date) BETWEEN '2008-11-01' AND '2008-11-18'
+GROUP BY CAST(DATE_TRUNC('day', creation_date) as date))
+
+SELECT ROUND(AVG(i), 0)
+FROM m;
+
+-------------
+
+SELECT COUNT(DISTINCT(u.id)) 
+FROM stackoverflow.users as u
+INNER JOIN stackoverflow.badges as b ON u.id = b.user_id
+WHERE CAST(b.creation_date as date) = CAST(u.creation_date as date);
+
+-------------
+
+SELECT COUNT(DISTINCT(p.id))
+FROM stackoverflow.users as u
+INNER JOIN stackoverflow.posts as p ON p.user_id = u.id
+INNER JOIN stackoverflow.votes as v ON p.id = v.post_id
+WHERE v.vote_type_id > 0
+AND u.display_name = 'Joel Coehoorn';
+
+-------------
+
+SELECT *,
+ROW_NUMBER() OVER (ORDER BY id DESC)
+FROM stackoverflow.vote_types
+ORDER BY id;
+
+-------------
+
+SELECT u.id,
+COUNT(vt.name)
+FROM stackoverflow.users as u
+INNER JOIN stackoverflow.votes as v ON u.id = v.user_id
+INNER JOIN stackoverflow.vote_types as vt ON vt.id = v.vote_type_id
+WHERE vt.name = 'Close'
+GROUP BY u.id
+ORDER BY COUNT(vt.name) DESC, u.id DESC
+LIMIT 10;
+
+-------------
+
+WITH i as
+(SELECT u.id,
+COUNT(b.user_id) as m
+FROM stackoverflow.badges as b
+INNER JOIN stackoverflow.users as u ON b.user_id = u.id
+WHERE CAST(DATE_TRUNC('day', b.creation_date) as date) BETWEEN '2008-11-15' AND '2008-12-15'
+GROUP BY u.id
+ORDER BY COUNT(b.user_id) DESC)
+
+SELECT *,
+DENSE_RANK() OVER (ORDER BY m DESC)
+FROM i
+LIMIT 10;
+
+-------------
+
+SELECT title,
+user_id,
+score,
+ROUND(AVG(score) OVER (PARTITION BY user_id), 0) 
+FROM stackoverflow.posts
+WHERE score <> 0 AND title IS NOT NULL
+GROUP BY title, user_id, score;
+
+-------------
+
+SELECT p.title
+FROM stackoverflow.posts as p
+INNER JOIN stackoverflow.users as u ON u.id = p.user_id
+INNER JOIN stackoverflow.badges as b ON b.user_id = u.id
+WHERE p.title IS NOT NULL
+GROUP BY p.title
+HAVING COUNT(b.id) > 1000;
+
+-------------
+
+SELECT id,
+views,
+CASE
+WHEN views >= 350 THEN 1
+WHEN views < 350 AND views >= 100 THEN 2
+WHEN views < 100 THEN 3
+END
+FROM stackoverflow.users
+WHERE location LIKE '%United States%' AND views <> 0
+GROUP BY id, views;
+
+-------------
+
+WITH i as
+(SELECT k.id,
+k.views,
+k.n,
+MAX(k.views) OVER (PARTITION BY k.n)
+FROM(SELECT id,
+views,
+(CASE
+WHEN views >= 350 THEN 1
+WHEN views < 350 AND views >= 100 THEN 2
+WHEN views < 100 THEN 3
+END) as n
+FROM stackoverflow.users
+WHERE location LIKE '%United States%' AND views <> 0
+GROUP BY id, views) as k)
+
+SELECT i.id,
+i.n,
+i.views
+FROM i
+WHERE i.views = i.max
+ORDER BY i.views DESC, i.id;
+
+-------------
+
+WITH i as
+(SELECT EXTRACT(DAY FROM CAST(creation_date as date)),
+COUNT(id)
+FROM stackoverflow.users
+WHERE EXTRACT(MONTH FROM CAST(creation_date as date)) = 11 AND EXTRACT(YEAR FROM creation_date ) = 2008
+GROUP BY EXTRACT(DAY FROM CAST(creation_date as date)))
+
+SELECT *,
+SUM(count) OVER (ORDER BY date_part)
+FROM i;
+
+-------------
+
+WITH i as
+(SELECT DISTINCT user_id,
+MIN(creation_date) OVER (PARTITION BY user_id) as x			
+FROM stackoverflow.posts)
+ 
+SELECT user_id,
+i.x - u.creation_date
+FROM stackoverflow.users as u 
+INNER JOIN i ON u.id = i.user_id;
+
+-------------
+
+SELECT CAST(DATE_TRUNC('month', creation_date) as date),
+SUM(views_count)
+FROM stackoverflow.posts
+GROUP BY CAST(DATE_TRUNC('month', creation_date) as date)
+ORDER BY SUM(views_count) DESC;
+
+-------------
+
+SELECT u.display_name,
+COUNT(DISTINCT p.user_id)
+FROM stackoverflow.posts as p
+JOIN stackoverflow.users as u ON p.user_id = u.id
+JOIN stackoverflow.post_types as pt ON pt.id = p.post_type_id
+WHERE pt.type = 'Answer' AND DATE_TRUNC('day', p.creation_date) >= DATE_TRUNC('day', u.creation_date) AND
+DATE_TRUNC('day', p.creation_date) <= (DATE_TRUNC('day', u.creation_date) + INTERVAL '1 month')
+GROUP BY u.display_name
+HAVING COUNT(p.id) > 100
+ORDER BY u.display_name;
+
+-------------
+
+WITH i as
+(SELECT u.id
+FROM stackoverflow.posts as p
+JOIN stackoverflow.users as u ON p.user_id = u.id
+WHERE DATE_TRUNC('day', u.creation_date)::date BETWEEN '2008-09-01' AND '2008-09-30' AND DATE_TRUNC('day', p.creation_date)::date BETWEEN '2008-12-01' AND '2008-12-31'
+GROUP BY u.id
+HAVING COUNT(p.id)>0)
+
+SELECT COUNT(p.id),
+DATE_TRUNC('month', p.creation_date)::date      
+FROM stackoverflow.posts as p
+WHERE p.user_id IN 
+(SELECT * 
+FROM i)
+AND DATE_TRUNC('year', p.creation_date)::date = '2008-01-01'
+GROUP BY DATE_TRUNC('month', p.creation_date)::date
+ORDER BY DATE_TRUNC('month', p.creation_date)::date DESC;
+
+-------------
+
+SELECT user_id,
+creation_date,
+views_count,
+SUM(views_count) OVER (PARTITION BY user_id ORDER BY creation_date ASC)
+FROM stackoverflow.posts;
+
+-------------
+
+WITH i as 
+(SELECT user_id, 
+DATE_TRUNC('day', creation_date) as dataa
+FROM stackoverflow.posts
+WHERE creation_date BETWEEN '2008-12-01' AND '2008-12-07'
+GROUP BY user_id, DATE_TRUNC('day', creation_date))
+
+SELECT ROUND(AVG(x))
+FROM 
+(SELECT user_id,
+COUNT(dataa) as x
+FROM i
+GROUP BY user_id) as xx;
+
+-------------
+
+WITH i as
+(SELECT
+EXTRACT(MONTH FROM CAST(creation_date as date)) as m,
+COUNT(id)
+FROM stackoverflow.posts
+WHERE CAST(DATE_TRUNC('day', creation_date) as date) BETWEEN '2008-09-01' AND '2008-12-31'
+GROUP BY EXTRACT(MONTH FROM CAST(creation_date as date)))
+ 
+SELECT *,
+ROUND(((count::numeric / LAG(count) OVER (ORDER BY m)) - 1) * 100,2)
+FROM i;
+
+-------------
+
+WITH i as
+(SELECT user_id,
+COUNT(id)
+FROM stackoverflow.posts
+GROUP BY user_id
+ORDER BY COUNT(id) DESC
+limit 1),
+
+k as 
+(SELECT EXTRACT(WEEK FROM CAST(p.creation_date as date)) as dataa,
+creation_date,
+ROW_NUMBER() OVER (PARTITION BY EXTRACT(WEEK FROM CAST(p.creation_date as date)) ORDER BY p.creation_date DESC) as x
+FROM stackoverflow.posts as p
+WHERE user_id in
+(SELECT user_id
+FROM i)
+AND EXTRACT(MONTH FROM p.creation_date) = 10)
+
+SELECT dataa,
+creation_date
+FROM k
+WHERE x = 1;
